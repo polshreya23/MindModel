@@ -1,0 +1,44 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --bg-primary: #F5F1E8;
+    --bg-surface: #FAF7F2;
+    --brand-teal: #174A45;
+    --accent-coral: #E88968;
+    --accent-sage: #A9BCA8;
+    --border-sand: #D8C8A8;
+    --text-charcoal: #252D2B;
+    --text-muted: #636E6B;
+  }
+
+  body {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    background-color: #F5F1E8;
+    color: #252D2B;
+  }
+
+  h1, h2, h3, .font-editorial {
+    font-family: 'Fraunces', Georgia, serif;
+  }
+
+  code, pre, kbd, samp {
+    font-family: 'JetBrains Mono', monospace;
+  }
+}
+
+/* Academic Editorial custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #F0EAE0;
+}
+::-webkit-scrollbar-thumb {
+  background: #D8C8A8;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #B8A888;
+}

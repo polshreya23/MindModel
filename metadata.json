@@ -1,0 +1,6 @@
+{
+  "name": "ModelMind",
+  "description": "AI-Powered Knowledge Graph & Mind Map Generator built with C++ Data Structures & Algorithms",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
