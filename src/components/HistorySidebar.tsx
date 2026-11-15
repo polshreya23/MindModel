@@ -13,8 +13,9 @@ import {
   Sparkles,
   AlertTriangle,
   RotateCcw,
+  Presentation,
 } from 'lucide-react';
-import { AnalysisHistoryRecord } from '../types/auth.ts';
+import { AnalysisHistoryRecord } from '../types/history.ts';
 
 interface HistorySidebarProps {
   isOpen: boolean;
@@ -53,7 +54,11 @@ export const HistorySidebar: React.FC<HistorySidebarProps> = ({
         searchQuery.trim() === '' ||
         item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
         (item.input_text && item.input_text.toLowerCase().includes(searchQuery.toLowerCase())) ||
-        (item.pdf_filename && item.pdf_filename.toLowerCase().includes(searchQuery.toLowerCase()));
+        (item.pdf_filename && item.pdf_filename.toLowerCase().includes(searchQuery.toLowerCase())) ||
+        (item.presentation_data?.filename &&
+          item.presentation_data.filename.toLowerCase().includes(searchQuery.toLowerCase())) ||
+        (item.presentation_data?.presentationTitle &&
+          item.presentation_data.presentationTitle.toLowerCase().includes(searchQuery.toLowerCase()));
 
       const matchesFavorite = !filterFavorites || item.is_favorite;
       return matchesSearch && matchesFavorite;
@@ -254,12 +259,18 @@ export const HistorySidebar: React.FC<HistorySidebarProps> = ({
                         <Network className="w-3 h-3 text-[#A9BCA8]" />
                         {nodeCount}c / {edgeCount}r
                       </span>
-                      {item.pdf_filename && (
+                      {(item.presentation_data?.sourceType === 'pptx' ||
+                        item.presentation_data?.sourceType === 'ppt') ? (
+                        <span className="flex items-center gap-0.5 text-[#174A45] font-mono font-semibold bg-[#EFE8DC] px-1.5 py-0.5 rounded">
+                          <Presentation className="w-3 h-3 text-[#E88968]" />
+                          PPTX ({item.presentation_data.slideCount || 0}s)
+                        </span>
+                      ) : item.pdf_filename ? (
                         <span className="flex items-center gap-0.5 text-[#E88968] font-mono">
                           <FileText className="w-3 h-3" />
                           PDF
                         </span>
-                      )}
+                      ) : null}
                     </div>
                     <span className="flex items-center gap-1">
                       <Calendar className="w-3 h-3 text-[#8C9895]" />
@@ -317,7 +328,7 @@ export const HistorySidebar: React.FC<HistorySidebarProps> = ({
                   Delete Analysis Record?
                 </h3>
                 <p className="text-xs text-[#636E6B] mt-1 leading-relaxed">
-                  This will permanently delete this saved knowledge graph and algorithmic snapshot from your Supabase PostgreSQL database.
+                  This will permanently delete this saved knowledge graph and algorithmic snapshot from your persistent history.
                 </p>
               </div>
             </div>

@@ -9,7 +9,6 @@ import { HeapLeaderboard } from './components/HeapLeaderboard.tsx';
 import { PrerequisitePath } from './components/PrerequisitePath.tsx';
 import { DsaCodeViewer } from './components/DsaCodeViewer.tsx';
 import { NodeDetailModal } from './components/NodeDetailModal.tsx';
-import { AuthPage } from './components/AuthPage.tsx';
 import { HistorySidebar } from './components/HistorySidebar.tsx';
 import { SupabaseConfigModal } from './components/SupabaseConfigModal.tsx';
 import { SAMPLE_CURRICULA } from './data/sampleCurricula.ts';
@@ -22,30 +21,25 @@ import {
   RankedConcept,
   TopologicalSortResult,
   AutoCompleteMatch,
+  PptxMetadata,
+  SlideReference,
 } from './types/dsa.ts';
 import {
-  UserProfile,
   AnalysisHistoryRecord,
-} from './types/auth.ts';
+  PresentationHistoryData,
+} from './types/history.ts';
 import {
-  getCurrentSession,
-  onAuthStateChange,
-  signOutUser,
-  fetchUserProfile,
-  fetchUserHistory,
+  fetchHistory,
   saveAnalysisRecord,
   toggleFavoriteRecord,
   deleteAnalysisRecord,
-  clearAllUserHistory,
+  clearAllHistory,
   isSupabaseReady,
 } from './lib/supabase.ts';
-import { Sparkles, AlertCircle, FilePlus2, RefreshCw } from 'lucide-react';
+import { Sparkles, AlertCircle, FilePlus2, Presentation } from 'lucide-react';
 
 export default function App() {
-  // Authentication & Session State
-  const [session, setSession] = useState<any>(null);
-  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-  const [authLoading, setAuthLoading] = useState<boolean>(true);
+  // Optional Remote Persistence Modal State
   const [showConfigModal, setShowConfigModal] = useState<boolean>(false);
   const [isDbConnected, setIsDbConnected] = useState<boolean>(isSupabaseReady());
 
@@ -68,6 +62,9 @@ export default function App() {
   const [heapTopK, setHeapTopK] = useState<RankedConcept[]>([]);
   const [heapArray, setHeapArray] = useState<RankedConcept[]>([]);
   const [topologicalSort, setTopologicalSort] = useState<TopologicalSortResult | null>(null);
+  const [presentationInfo, setPresentationInfo] = useState<PresentationHistoryData | null>(null);
+  const [documentTitle, setDocumentTitle] = useState<string | null>(null);
+  const [centralTopicLabel, setCentralTopicLabel] = useState<string | null>(null);
 
   // Interactive selection state
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -81,99 +78,32 @@ export default function App() {
   const [highlightedPath, setHighlightedPath] = useState<string[]>([]);
   const [dijkstraDistance, setDijkstraDistance] = useState<number | null>(null);
 
-  // 1. Initial Auth Check and Event Listener
-  useEffect(() => {
-    let mounted = true;
-
-    async function initAuth() {
-      try {
-        const curSession = await getCurrentSession();
-        if (mounted) {
-          setSession(curSession);
-          if (curSession?.user) {
-            loadUserProfile(curSession.user.id, curSession.user.email || '');
-            loadHistory(curSession.user.id);
-          }
-        }
-      } catch (err) {
-        console.warn('Initial auth check warning:', err);
-      } finally {
-        if (mounted) {
-          setAuthLoading(false);
-          setIsDbConnected(isSupabaseReady());
-        }
-      }
-    }
-
-    initAuth();
-
-    const sub = onAuthStateChange((newSession, newUser) => {
-      if (!mounted) return;
-      setSession(newSession);
-      setIsDbConnected(isSupabaseReady());
-
-      if (newUser) {
-        loadUserProfile(newUser.id, newUser.email || '');
-        loadHistory(newUser.id);
-      } else {
-        setUserProfile(null);
-        setHistory([]);
-        setSelectedHistoryId(null);
-      }
-    });
-
-    return () => {
-      mounted = false;
-      sub?.unsubscribe();
-    };
-  }, []);
-
-  // Fetch or construct profile
-  const loadUserProfile = async (userId: string, email: string) => {
-    try {
-      const profile = await fetchUserProfile(userId);
-      if (profile) {
-        setUserProfile(profile);
-      } else {
-        const fallbackName = email.split('@')[0] || 'Scholar';
-        setUserProfile({
-          id: userId,
-          email,
-          fullName: fallbackName.charAt(0).toUpperCase() + fallbackName.slice(1),
-        });
-      }
-    } catch {
-      setUserProfile({
-        id: userId,
-        email,
-        fullName: 'Scholar User',
-      });
-    }
-  };
-
-  // Fetch history for current user from Supabase PostgreSQL
-  const loadHistory = async (userId: string) => {
+  // Fetch persistent history on initial mount (IndexedDB or anonymous Supabase)
+  const loadHistory = async () => {
     setHistoryLoading(true);
     try {
-      const records = await fetchUserHistory(userId);
+      const records = await fetchHistory();
       setHistory(records);
 
-      // If user has past history and workspace is currently empty, load the most recent record
       if (records.length > 0 && nodes.length === 0) {
         handleRestoreAnalysis(records[0]);
       } else if (records.length === 0 && nodes.length === 0) {
-        // Load initial default sample curriculum
-        handleProcessText(SAMPLE_CURRICULA[0].text, 'Sample: Binary Search Trees', false);
+        handleProcessText(SAMPLE_CURRICULA[0].text, SAMPLE_CURRICULA[0].title, false);
       }
     } catch (err) {
       console.warn('History load note:', err);
       if (nodes.length === 0) {
-        handleProcessText(SAMPLE_CURRICULA[0].text, 'Sample: Binary Search Trees', false);
+        handleProcessText(SAMPLE_CURRICULA[0].text, SAMPLE_CURRICULA[0].title, false);
       }
     } finally {
       setHistoryLoading(false);
     }
   };
+
+  useEffect(() => {
+    setIsDbConnected(isSupabaseReady());
+    loadHistory();
+  }, []);
 
   // Helper to derive a clean topic title from text or concepts
   const deriveTitle = (text: string, extractedNodes: ConceptNode[]): string => {
@@ -240,6 +170,18 @@ export default function App() {
       setHeapTopK(newHeapTopK);
       setHeapArray(newHeapArray);
       setTopologicalSort(newTopo);
+      setPresentationInfo(null);
+
+      // Derive document title if explicit customTitle or short first-line heading exists
+      let resolvedTitle: string | null = customTitle || null;
+      if (!resolvedTitle) {
+        const firstLine = text.trim().split('\n')[0].replace(/[#*_-]/g, '').trim();
+        if (firstLine.length >= 4 && firstLine.length <= 55 && !firstLine.endsWith('.')) {
+          resolvedTitle = firstLine;
+        }
+      }
+      setDocumentTitle(resolvedTitle);
+      setCentralTopicLabel(null);
 
       // Reset traversal states
       setSteps([]);
@@ -249,11 +191,11 @@ export default function App() {
       setActiveAlgorithm(null);
       setSelectedNodeId(newNodes[0]?.id || null);
 
-      // 3. Persist to Supabase PostgreSQL (if user is authenticated and shouldPersist is true)
-      if (shouldPersist && session?.user?.id) {
+      // 3. Persist to persistent history (IndexedDB / Supabase)
+      if (shouldPersist) {
         const title = customTitle || deriveTitle(text, newNodes);
         try {
-          const savedRecord = await saveAnalysisRecord(session.user.id, {
+          const savedRecord = await saveAnalysisRecord({
             title,
             inputText: text,
             nodes: newNodes,
@@ -270,7 +212,7 @@ export default function App() {
             setSelectedHistoryId(savedRecord.id);
           }
         } catch (dbErr: any) {
-          console.warn('Could not persist to Supabase history:', dbErr.message);
+          console.warn('Could not persist to history:', dbErr.message);
         }
       }
     } catch (err: any) {
@@ -332,6 +274,11 @@ export default function App() {
       setHeapTopK(newHeapTopK);
       setHeapArray(newHeapArray);
       setTopologicalSort(newTopo);
+      setPresentationInfo(null);
+      const pdfTitle =
+        data.metadata?.title?.trim() || file.name.replace(/\.[^/.]+$/, '');
+      setDocumentTitle(pdfTitle);
+      setCentralTopicLabel(null);
 
       setSteps([]);
       setCurrentStepIndex(0);
@@ -339,34 +286,139 @@ export default function App() {
       setDijkstraDistance(null);
       setSelectedNodeId(newNodes[0]?.id || null);
 
-      // Persist to Supabase
-      if (session?.user?.id) {
-        const title = file.name.replace(/\.[^/.]+$/, '');
-        try {
-          const savedRecord = await saveAnalysisRecord(session.user.id, {
-            title: `PDF: ${title}`,
-            inputText: data.text?.slice(0, 5000),
-            pdfFilename: file.name,
-            nodes: newNodes,
-            edges: newEdges,
-            summary: extractedSummary,
-            concepts: rawNodes,
-            topologicalSort: newTopo,
-            heapTopK: newHeapTopK,
-            heapArray: newHeapArray,
-          });
+      // Persist PDF analysis to history
+      const title = file.name.replace(/\.[^/.]+$/, '');
+      try {
+        const savedRecord = await saveAnalysisRecord({
+          title: `PDF: ${title}`,
+          inputText: data.text?.slice(0, 5000),
+          pdfFilename: file.name,
+          nodes: newNodes,
+          edges: newEdges,
+          summary: extractedSummary,
+          concepts: rawNodes,
+          topologicalSort: newTopo,
+          heapTopK: newHeapTopK,
+          heapArray: newHeapArray,
+        });
 
-          if (savedRecord) {
-            setHistory((prev) => [savedRecord, ...prev.filter((h) => h.id !== savedRecord.id)]);
-            setSelectedHistoryId(savedRecord.id);
-          }
-        } catch (dbErr: any) {
-          console.warn('Could not persist PDF analysis to Supabase:', dbErr.message);
+        if (savedRecord) {
+          setHistory((prev) => [savedRecord, ...prev.filter((h) => h.id !== savedRecord.id)]);
+          setSelectedHistoryId(savedRecord.id);
         }
+      } catch (dbErr: any) {
+        console.warn('Could not persist PDF analysis to history:', dbErr.message);
       }
     } catch (err: any) {
       console.error(err);
       setErrorMessage(err.message || 'Failed to upload and extract PDF.');
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Upload and parse PowerPoint (.pptx / .ppt) via python-pptx -> NLP -> C++ DSA Pipeline
+  const handleUploadPptx = async (
+    file: File
+  ): Promise<{ metadata?: PptxMetadata; slideCount?: number; title?: string }> => {
+    setIsLoading(true);
+    setErrorMessage(null);
+    try {
+      const formData = new FormData();
+      formData.append('presentation', file);
+
+      const res = await fetch('/api/upload-pptx', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || `PowerPoint Processing Error: ${res.statusText}`);
+      }
+
+      const extractedSummary: SummaryResult = data.summary;
+      setSummary(extractedSummary);
+
+      const buildData: BuildGraphResponse = data.graphBuild;
+      if (!buildData || !buildData.success) {
+        throw new Error(buildData?.error || 'C++ Graph build failed for presentation');
+      }
+
+      const slideRefsMap: Record<string, SlideReference[]> = data.slideReferences || {};
+      const enrichedNodes: ConceptNode[] = (buildData.graph.nodes || []).map((n) => ({
+        ...n,
+        slideRefs: slideRefsMap[n.id] || n.slideRefs || [],
+      }));
+
+      const newEdges = buildData.graph.edges || [];
+      const newHeapTopK = buildData.heapTopK || [];
+      const newHeapArray = buildData.heapArray || [];
+      const newTopo = buildData.topologicalSort || null;
+
+      const meta: PptxMetadata | undefined = data.metadata;
+      const ext = file.name.toLowerCase().endsWith('.ppt') ? 'ppt' : 'pptx';
+      const deckData: PresentationHistoryData = {
+        sourceType: ext,
+        filename: file.name,
+        presentationTitle: meta?.title || file.name.replace(/\.[^/.]+$/, ''),
+        slideCount: meta?.slideCount ?? data.slides?.length ?? 0,
+        tableCount: meta?.tableCount ?? 0,
+        bulletCount: meta?.bulletCount ?? 0,
+        slides: data.slides || [],
+        slideReferences: slideRefsMap,
+      };
+
+      setNodes(enrichedNodes);
+      setEdges(newEdges);
+      setHeapTopK(newHeapTopK);
+      setHeapArray(newHeapArray);
+      setTopologicalSort(newTopo);
+      setPresentationInfo(deckData);
+      setDocumentTitle(deckData.presentationTitle || file.name.replace(/\.[^/.]+$/, ''));
+      setCentralTopicLabel(null);
+
+      setSteps([]);
+      setCurrentStepIndex(0);
+      setHighlightedPath([]);
+      setDijkstraDistance(null);
+      setActiveAlgorithm(null);
+      setSelectedNodeId(enrichedNodes[0]?.id || null);
+
+      // Persist PowerPoint analysis to history
+      const title = deckData.presentationTitle || file.name.replace(/\.[^/.]+$/, '');
+      try {
+        const savedRecord = await saveAnalysisRecord({
+          title: `PPTX: ${title}`,
+          inputText: data.text?.slice(0, 8000),
+          presentationData: deckData,
+          nodes: enrichedNodes,
+          edges: newEdges,
+          summary: extractedSummary,
+          concepts: data.nlp?.nodes || [],
+          topologicalSort: newTopo,
+          heapTopK: newHeapTopK,
+          heapArray: newHeapArray,
+        });
+
+        if (savedRecord) {
+          setHistory((prev) => [savedRecord, ...prev.filter((h) => h.id !== savedRecord.id)]);
+          setSelectedHistoryId(savedRecord.id);
+        }
+      } catch (dbErr: any) {
+        console.warn('Could not persist PowerPoint analysis to history:', dbErr.message);
+      }
+
+      return {
+        metadata: meta,
+        slideCount: deckData.slideCount,
+        title: deckData.presentationTitle,
+      };
+    } catch (err: any) {
+      console.error(err);
+      setErrorMessage(err.message || 'Failed to upload and extract PowerPoint presentation.');
+      throw err;
     } finally {
       setIsLoading(false);
     }
@@ -375,7 +427,11 @@ export default function App() {
   // Restore Complete Workspace from History without re-running pipeline
   const handleRestoreAnalysis = (item: AnalysisHistoryRecord) => {
     setSelectedHistoryId(item.id);
-    const restoredNodes = item.graph_data?.nodes || [];
+    const slideRefsMap = item.presentation_data?.slideReferences || {};
+    const restoredNodes = (item.graph_data?.nodes || []).map((n) => ({
+      ...n,
+      slideRefs: n.slideRefs || slideRefsMap[n.id] || undefined,
+    }));
     const restoredEdges = item.graph_data?.edges || [];
 
     setNodes(restoredNodes);
@@ -384,6 +440,14 @@ export default function App() {
     setHeapTopK(item.algorithm_results?.heapTopK || []);
     setHeapArray(item.algorithm_results?.heapArray || []);
     setTopologicalSort(item.algorithm_results?.topologicalSort || null);
+    setPresentationInfo(item.presentation_data || null);
+    setDocumentTitle(
+      item.presentation_data?.presentationTitle ||
+        item.pdf_filename?.replace(/\.[^/.]+$/, '') ||
+        item.title ||
+        null
+    );
+    setCentralTopicLabel(null);
 
     // Reset algorithm animations
     setSteps([]);
@@ -403,6 +467,9 @@ export default function App() {
     setHeapTopK([]);
     setHeapArray([]);
     setTopologicalSort(null);
+    setPresentationInfo(null);
+    setDocumentTitle(null);
+    setCentralTopicLabel(null);
     setSteps([]);
     setCurrentStepIndex(0);
     setHighlightedPath([]);
@@ -411,11 +478,10 @@ export default function App() {
     setShowIngestModal(true);
   };
 
-  // Toggle favorite status in Supabase
+  // Toggle favorite status
   const handleToggleFavorite = async (id: string, current: boolean) => {
-    if (!session?.user?.id) return;
     try {
-      await toggleFavoriteRecord(id, !current, session.user.id);
+      await toggleFavoriteRecord(id, !current);
       setHistory((prev) =>
         prev.map((item) => (item.id === id ? { ...item, is_favorite: !current } : item))
       );
@@ -424,11 +490,10 @@ export default function App() {
     }
   };
 
-  // Delete single history item in Supabase
+  // Delete single history item
   const handleDeleteHistory = async (id: string) => {
-    if (!session?.user?.id) return;
     try {
-      await deleteAnalysisRecord(id, session.user.id);
+      await deleteAnalysisRecord(id);
       setHistory((prev) => prev.filter((item) => item.id !== id));
       if (selectedHistoryId === id) {
         setSelectedHistoryId(null);
@@ -438,28 +503,14 @@ export default function App() {
     }
   };
 
-  // Clear all history for current user in Supabase
+  // Clear all history
   const handleClearAllHistory = async () => {
-    if (!session?.user?.id) return;
     try {
-      await clearAllUserHistory(session.user.id);
+      await clearAllHistory();
       setHistory([]);
       setSelectedHistoryId(null);
     } catch (err: any) {
       console.error('Error clearing history:', err);
-    }
-  };
-
-  // Logout
-  const handleLogout = async () => {
-    try {
-      await signOutUser();
-      setSession(null);
-      setUserProfile(null);
-      setHistory([]);
-      setSelectedHistoryId(null);
-    } catch (err: any) {
-      console.error('Logout error:', err);
     }
   };
 
@@ -575,60 +626,28 @@ export default function App() {
     [nodes, edges]
   );
 
-  // If Auth check is loading, show high-fidelity editorial loader
-  if (authLoading) {
-    return (
-      <div className="min-h-screen bg-[#F5F1E8] flex flex-col items-center justify-center p-6 text-[#252D2B]">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-[#174A45] flex items-center justify-center text-[#F5F1E8] shadow-md animate-pulse">
-            <RefreshCw className="w-5 h-5 animate-spin text-[#E88968]" />
-          </div>
-          <span className="font-editorial text-xl font-bold text-[#174A45]">
-            ModelMind
-          </span>
-          <span className="text-xs text-[#636E6B] font-mono">
-            Verifying scholar security credentials...
-          </span>
-        </div>
-      </div>
-    );
-  }
-
-  // If User is not logged in, render the AuthPage
-  if (!session) {
-    return (
-      <>
-        <AuthPage
-          onAuthSuccess={async () => {
-            const curSession = await getCurrentSession();
-            setSession(curSession);
-            if (curSession?.user) {
-              loadUserProfile(curSession.user.id, curSession.user.email || '');
-              loadHistory(curSession.user.id);
-            }
-          }}
-          onOpenConfig={() => setShowConfigModal(true)}
-          supabaseConfigured={isDbConnected}
-        />
-        {showConfigModal && (
-          <SupabaseConfigModal
-            onClose={() => setShowConfigModal(false)}
-            onConfigChanged={() => setIsDbConnected(isSupabaseReady())}
-          />
-        )}
-      </>
-    );
-  }
-
   // Derive active traversal state for visual canvas
   const currentStep = steps[currentStepIndex];
   const activeTraversalNode = currentStep ? currentStep.currentNode : null;
   const visitedNodes = new Set<string>(currentStep ? currentStep.visitedOrder : []);
-  const selectedNode = nodes.find((n) => n.id === selectedNodeId) || null;
+  const selectedNode: ConceptNode | null =
+    selectedNodeId === '__central_topic__'
+      ? {
+          id: '__central_topic__',
+          name: centralTopicLabel || documentTitle || 'Central Topic',
+          description:
+            summary?.summary ||
+            `Primary document topic synthesizing ${nodes.length} extracted concepts and ${edges.length} relationships.`,
+          category: 'Central Topic',
+          frequency: nodes.length,
+          importanceScore: heapTopK[0]?.score || 10,
+          inDegreePrereq: 0,
+        }
+      : nodes.find((n) => n.id === selectedNodeId) || null;
 
   return (
     <div className="min-h-screen bg-[#F5F1E8] text-[#252D2B] flex flex-col font-sans selection:bg-[#E88968]/30 selection:text-[#174A45]">
-      {/* 3-Zone Header Contract with User & Sidebar Controls */}
+      {/* 3-Zone Header Contract with Sidebar & Storage Controls */}
       <Header
         activeTab={activeTab}
         onSelectTab={setActiveTab}
@@ -637,8 +656,6 @@ export default function App() {
         edgeCount={edges.length}
         sidebarOpen={sidebarOpen}
         onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
-        userProfile={userProfile}
-        onLogout={handleLogout}
         onOpenConfig={() => setShowConfigModal(true)}
         isDbConnected={isDbConnected}
       />
@@ -671,7 +688,18 @@ export default function App() {
               onSearchTrie={handleSearchTrie}
             />
 
-            <div className="flex items-center gap-2 text-xs text-[#636E6B]">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-[#636E6B]">
+              {presentationInfo && (
+                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#174A45] text-[#FAF7F2] font-mono text-[11px] shrink-0 shadow-2xs">
+                  <Presentation className="w-3.5 h-3.5 text-[#E88968]" />
+                  <span className="font-semibold truncate max-w-[160px]">
+                    {presentationInfo.filename}
+                  </span>
+                  <span className="text-[#A9BCA8]">
+                    ({presentationInfo.slideCount || 0} slides)
+                  </span>
+                </div>
+              )}
               {summary && summary.success && (
                 <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#EFE8DC] border border-[#D8C8A8] text-[#174A45]">
                   <Sparkles className="w-3.5 h-3.5 text-[#E88968] shrink-0" />
@@ -706,13 +734,13 @@ export default function App() {
                 Workspace Ready for Curriculum Synthesis
               </h2>
               <p className="text-xs text-[#636E6B] max-w-md mt-1 mb-5">
-                Input your curriculum text, course syllabus, or upload an academic PDF to generate an interactive knowledge graph and C++ algorithmic models.
+                Input your curriculum text, course syllabus, upload a PowerPoint deck (.pptx/.ppt), or upload an academic PDF to generate an interactive knowledge graph and C++ algorithmic models.
               </p>
               <button
                 onClick={() => setShowIngestModal(true)}
                 className="px-5 py-2.5 bg-[#174A45] hover:bg-[#123834] text-[#FAF7F2] text-xs font-semibold rounded-xl shadow-xs transition cursor-pointer"
               >
-                Open Input &amp; PDF Ingestion Panel
+                Open Input, PPTX &amp; PDF Ingestion Panel
               </button>
             </div>
           )}
@@ -758,10 +786,16 @@ export default function App() {
                 nodes={nodes}
                 edges={edges}
                 selectedNodeId={selectedNodeId}
-                onSelectNode={(id) => {
+                onSelectNode={(id, topicLabel) => {
+                  if (topicLabel) setCentralTopicLabel(topicLabel);
                   setSelectedNodeId(id);
                   setShowNodeModal(true);
                 }}
+                topologicalSort={topologicalSort}
+                heapTopK={heapTopK}
+                documentTitle={documentTitle}
+                summaryText={summary?.summary}
+                slides={presentationInfo?.slides}
               />
             </div>
           )}
@@ -802,12 +836,13 @@ export default function App() {
         </div>
       </div>
 
-      {/* Modal: Document / PDF Ingestion Drawer */}
+      {/* Modal: Document / PowerPoint / PDF Ingestion Drawer */}
       {showIngestModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
           <TextInputPanel
             onProcessText={handleProcessText}
             onUploadPdf={handleUploadPdf}
+            onUploadPptx={handleUploadPptx}
             isLoading={isLoading}
             summary={summary}
             onClose={() => setShowIngestModal(false)}
@@ -832,15 +867,13 @@ export default function App() {
         />
       )}
 
-      {/* Modal: Supabase Configuration & Schema Helper */}
+      {/* Modal: History Storage Configuration & Schema Helper */}
       {showConfigModal && (
         <SupabaseConfigModal
           onClose={() => setShowConfigModal(false)}
           onConfigChanged={() => {
             setIsDbConnected(isSupabaseReady());
-            if (session?.user?.id) {
-              loadHistory(session.user.id);
-            }
+            loadHistory();
           }}
         />
       )}

@@ -39,7 +39,7 @@ export const SupabaseConfigModal: React.FC<SupabaseConfigModalProps> = ({
 
   const handleTestConnection = async () => {
     setTestStatus('testing');
-    setTestMessage('Connecting to Supabase...');
+    setTestMessage('Connecting to Supabase PostgreSQL...');
 
     const client = getSupabase();
     if (!client) {
@@ -49,13 +49,13 @@ export const SupabaseConfigModal: React.FC<SupabaseConfigModalProps> = ({
     }
 
     try {
-      const { error } = await client.auth.getSession();
+      const { error } = await client.from('analysis_history').select('id').limit(1);
       if (error) {
         setTestStatus('error');
-        setTestMessage(`Auth ping failed: ${error.message}`);
+        setTestMessage(`Table check note: ${error.message}`);
       } else {
         setTestStatus('success');
-        setTestMessage('Successfully connected to Supabase Auth & PostgreSQL service!');
+        setTestMessage('Successfully connected to Supabase PostgreSQL analysis_history table!');
       }
     } catch (err: any) {
       setTestStatus('error');
@@ -68,25 +68,14 @@ export const SupabaseConfigModal: React.FC<SupabaseConfigModalProps> = ({
     setUrl('');
     setAnonKey('');
     setTestStatus('idle');
-    setTestMessage('Configuration cleared.');
+    setTestMessage('Disconnected. ModelMind will use local browser IndexedDB persistence.');
     onConfigChanged();
   };
 
-  const sqlSchemaSnippet = `-- Run this in your Supabase SQL Editor:
-create table if not exists public.profiles (
-  id uuid references auth.users on delete cascade primary key,
-  full_name text not null default '',
-  email text not null default '',
-  avatar_url text,
-  created_at timestamptz default now() not null
-);
-alter table public.profiles enable row level security;
-create policy "Users can view own profile" on public.profiles for select using (auth.uid() = id);
-create policy "Users can update own profile" on public.profiles for update using (auth.uid() = id);
-
+  const sqlSchemaSnippet = `-- Run this in your Supabase SQL Editor (No-Auth Public History Model):
 create table if not exists public.analysis_history (
   id uuid default gen_random_uuid() primary key,
-  user_id uuid references auth.users on delete cascade not null,
+  workspace_id text not null default 'default-workspace',
   title text not null,
   input_text text,
   pdf_filename text,
@@ -99,23 +88,12 @@ create table if not exists public.analysis_history (
   created_at timestamptz default now() not null,
   updated_at timestamptz default now() not null
 );
-alter table public.analysis_history enable row level security;
-create policy "Users can select own history" on public.analysis_history for select using (auth.uid() = user_id);
-create policy "Users can insert own history" on public.analysis_history for insert with check (auth.uid() = user_id);
-create policy "Users can update own history" on public.analysis_history for update using (auth.uid() = user_id);
-create policy "Users can delete own history" on public.analysis_history for delete using (auth.uid() = user_id);
 
-create table if not exists public.favorites (
-  id uuid default gen_random_uuid() primary key,
-  user_id uuid references auth.users on delete cascade not null,
-  history_id uuid references public.analysis_history(id) on delete cascade not null,
-  created_at timestamptz default now() not null,
-  unique (user_id, history_id)
-);
-alter table public.favorites enable row level security;
-create policy "Users can select own favorites" on public.favorites for select using (auth.uid() = user_id);
-create policy "Users can insert own favorites" on public.favorites for insert with check (auth.uid() = user_id);
-create policy "Users can delete own favorites" on public.favorites for delete using (auth.uid() = user_id);`;
+alter table public.analysis_history enable row level security;
+create policy "Public anon select history" on public.analysis_history for select to anon using (true);
+create policy "Public anon insert history" on public.analysis_history for insert to anon with check (workspace_id is not null);
+create policy "Public anon update history" on public.analysis_history for update to anon using (true);
+create policy "Public anon delete history" on public.analysis_history for delete to anon using (true);`;
 
   const copySql = () => {
     navigator.clipboard.writeText(sqlSchemaSnippet);
@@ -134,10 +112,10 @@ create policy "Users can delete own favorites" on public.favorites for delete us
             </div>
             <div>
               <h2 className="font-editorial text-lg font-bold text-[#174A45]">
-                Supabase Database &amp; Auth Configuration
+                History Persistence Settings (IndexedDB + Optional Supabase)
               </h2>
               <p className="text-xs text-[#636E6B]">
-                Configure real PostgreSQL persistence and secure Row Level Security (RLS)
+                Local browser IndexedDB works automatically; optionally sync to Supabase PostgreSQL
               </p>
             </div>
           </div>
@@ -155,8 +133,8 @@ create policy "Users can delete own favorites" on public.favorites for delete us
           <div className="p-3.5 rounded-xl border border-[#D8C8A8] bg-white flex items-start gap-3">
             <ShieldCheck className="w-5 h-5 text-[#174A45] shrink-0 mt-0.5" />
             <div className="text-xs text-[#252D2B] leading-relaxed">
-              <span className="font-semibold text-[#174A45]">Client-Side Secure Key Policy: </span>
-              Only use the public <code className="font-mono bg-[#EFE8DC] px-1 py-0.5 rounded text-[#174A45]">anon</code> public key. Never supply or expose the Supabase <code className="font-mono bg-[#FBEBE7] px-1 py-0.5 rounded text-[#8C2A14]">service_role</code> secret. All queries are strictly sandboxed by Row Level Security (RLS).
+              <span className="font-semibold text-[#174A45]">Automatic Local Persistence &amp; Public Anon Policy: </span>
+              History is automatically saved locally in browser <code className="font-mono bg-[#EFE8DC] px-1 py-0.5 rounded text-[#174A45]">IndexedDB</code> with zero setup. If connecting Supabase, only supply the public <code className="font-mono bg-[#EFE8DC] px-1 py-0.5 rounded text-[#174A45]">anon</code> key—never expose a <code className="font-mono bg-[#FBEBE7] px-1 py-0.5 rounded text-[#8C2A14]">service_role</code> key.
             </div>
           </div>
 
@@ -164,7 +142,7 @@ create policy "Users can delete own favorites" on public.favorites for delete us
           <form onSubmit={handleSave} className="space-y-4">
             <div>
               <label className="block text-xs font-semibold text-[#174A45] uppercase tracking-wider mb-1">
-                Supabase Project URL
+                Supabase Project URL (Optional)
               </label>
               <input
                 type="url"
@@ -174,14 +152,11 @@ create policy "Users can delete own favorites" on public.favorites for delete us
                 placeholder="https://xyzprojectid.supabase.co"
                 className="w-full px-3.5 py-2.5 bg-white border border-[#D8C8A8] rounded-xl text-xs sm:text-sm font-mono text-[#252D2B] focus:outline-none focus:border-[#174A45]"
               />
-              <span className="text-[11px] text-[#636E6B] mt-1 block">
-                Found in your Supabase Dashboard &rarr; Project Settings &rarr; API &rarr; Project URL
-              </span>
             </div>
 
             <div>
               <label className="block text-xs font-semibold text-[#174A45] uppercase tracking-wider mb-1">
-                Supabase Anon (Public) Key
+                Supabase Anon (Public) Key (Optional)
               </label>
               <textarea
                 required
@@ -191,9 +166,6 @@ create policy "Users can delete own favorites" on public.favorites for delete us
                 placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
                 className="w-full px-3.5 py-2.5 bg-white border border-[#D8C8A8] rounded-xl text-xs font-mono text-[#252D2B] focus:outline-none focus:border-[#174A45]"
               />
-              <span className="text-[11px] text-[#636E6B] mt-1 block">
-                Found in your Supabase Dashboard &rarr; Project Settings &rarr; API &rarr; Project API Keys &rarr; <code className="font-mono">anon public</code>
-              </span>
             </div>
 
             {testMessage && (
@@ -236,7 +208,7 @@ create policy "Users can delete own favorites" on public.favorites for delete us
                   onClick={handleClear}
                   className="px-3 py-2 text-xs text-[#8C2A14] hover:bg-[#FBEBE7] rounded-xl transition cursor-pointer"
                 >
-                  Disconnect Credentials
+                  Use Local IndexedDB Only
                 </button>
               )}
             </div>
@@ -247,10 +219,10 @@ create policy "Users can delete own favorites" on public.favorites for delete us
             <div className="flex items-center justify-between mb-2">
               <div>
                 <h3 className="font-editorial text-sm font-bold text-[#174A45]">
-                  PostgreSQL Schema &amp; RLS Migration Script
+                  PostgreSQL Anonymous History Schema Script
                 </h3>
                 <p className="text-[11px] text-[#636E6B]">
-                  Execute this script once in your Supabase SQL Editor to provision tables &amp; RLS policies.
+                  Optional: run in Supabase SQL Editor if syncing history remotely without login.
                 </p>
               </div>
               <button

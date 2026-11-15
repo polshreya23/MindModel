@@ -1,5 +1,32 @@
 export type EdgeType = 'CONCEPTUAL' | 'PREREQUISITE';
 
+export interface SlideReference {
+  slideNumber: number;
+  title: string;
+}
+
+export interface SlideContent {
+  slideNumber: number;
+  title: string;
+  text: string;
+  bulletPoints: string[];
+  tables: string[][][];
+  notes?: string;
+  charCount: number;
+}
+
+export interface PptxMetadata {
+  title: string;
+  author?: string;
+  slideCount: number;
+  tableCount: number;
+  bulletCount: number;
+  charCount: number;
+  wordCount: number;
+  sourceFormat: string;
+  filename: string;
+}
+
 export interface ConceptNode {
   id: string;
   name: string;
@@ -8,6 +35,7 @@ export interface ConceptNode {
   frequency: number;
   importanceScore: number;
   inDegreePrereq: number;
+  slideRefs?: SlideReference[];
   x?: number;
   y?: number;
   vx?: number;

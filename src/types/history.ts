@@ -1,19 +1,31 @@
-import { ConceptNode, GraphEdge, SummaryResult, RankedConcept, TopologicalSortResult } from './dsa.ts';
+import {
+  ConceptNode,
+  GraphEdge,
+  SummaryResult,
+  RankedConcept,
+  TopologicalSortResult,
+  SlideContent,
+  SlideReference,
+} from './dsa.ts';
 
-export interface UserProfile {
-  id: string;
-  email: string;
-  fullName: string;
-  avatarUrl?: string;
-  createdAt?: string;
+export interface PresentationHistoryData {
+  sourceType: 'pptx' | 'ppt' | 'pdf' | 'text';
+  filename?: string;
+  presentationTitle?: string;
+  slideCount?: number;
+  tableCount?: number;
+  bulletCount?: number;
+  slides?: SlideContent[];
+  slideReferences?: Record<string, SlideReference[]>;
 }
 
 export interface AnalysisHistoryRecord {
   id: string;
-  user_id: string;
+  workspace_id?: string;
   title: string;
   input_text: string | null;
   pdf_filename: string | null;
+  presentation_data?: PresentationHistoryData | null;
   graph_data: {
     nodes: ConceptNode[];
     edges: GraphEdge[];
@@ -30,8 +42,6 @@ export interface AnalysisHistoryRecord {
   created_at: string;
   updated_at?: string;
 }
-
-export type AuthMode = 'login' | 'signup' | 'forgot_password';
 
 export interface SupabaseConfig {
   url: string;

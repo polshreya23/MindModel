@@ -1,6 +1,6 @@
 import React from 'react';
 import { ConceptNode, GraphEdge } from '../types/dsa.ts';
-import { X, Network, Play } from 'lucide-react';
+import { X, Network, Play, Presentation } from 'lucide-react';
 
 interface NodeDetailModalProps {
   node: ConceptNode | null;
@@ -81,6 +81,27 @@ export const NodeDetailModal: React.FC<NodeDetailModalProps> = ({
             <span className="font-mono text-[#5B8A6B] font-bold">{node.inDegreePrereq || 0} upstream deps</span>
           </div>
         </div>
+
+        {/* Slide-Level Provenance (for PowerPoint uploads) */}
+        {node.slideRefs && node.slideRefs.length > 0 && (
+          <div className="flex flex-col gap-1.5 pt-1">
+            <span className="text-xs font-semibold text-[#174A45] flex items-center gap-1.5">
+              <Presentation className="w-3.5 h-3.5 text-[#E88968]" />
+              <span>Referenced in Presentation Slides</span>
+            </span>
+            <div className="flex flex-wrap gap-1.5">
+              {node.slideRefs.map((ref) => (
+                <span
+                  key={ref.slideNumber}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#EFE8DC] border border-[#D8C8A8] text-[11px] text-[#174A45]"
+                >
+                  <span className="font-mono font-bold text-[#E88968]">Slide {ref.slideNumber}</span>
+                  <span className="text-[#636E6B] truncate max-w-[180px]">· {ref.title}</span>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Connected Adjacency List */}
         <div className="flex flex-col gap-2 pt-1">
