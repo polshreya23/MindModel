@@ -22,9 +22,9 @@ COPY python_nlp/requirements.txt ./python_nlp/requirements.txt
 RUN pip install --no-cache-dir --upgrade pip \
   && pip install --no-cache-dir -r python_nlp/requirements.txt
 
-# Install Node.js dependencies (include tsx runtime for `tsx server.ts`)
-COPY package.json ./
-RUN npm install --include=dev && npm cache clean --force
+# Install Node.js dependencies cleanly via lockfile (include tsx runtime for `tsx server.ts`)
+COPY package.json package-lock.json ./
+RUN npm ci --include=dev && npm cache clean --force
 
 # Compile the C++14 DSA engine specifically for Linux and verify all C++ unit tests pass
 COPY cxx ./cxx
