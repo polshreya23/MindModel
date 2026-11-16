@@ -3,6 +3,22 @@ import path from 'path';
 import fs from 'fs';
 
 export class NlpBridge {
+  public static getPythonExecutable(): string {
+    if (process.env.PYTHON_BIN) return process.env.PYTHON_BIN;
+    return process.platform === 'win32' ? 'python' : 'python3';
+  }
+
+  public static verifyScripts(): boolean {
+    const cwd = process.cwd();
+    const required = [
+      'python_nlp/extractor.py',
+      'python_nlp/summarizer.py',
+      'python_nlp/pdf_extractor.py',
+      'python_nlp/pptx_extractor.py',
+    ];
+    return required.every((rel) => fs.existsSync(path.join(cwd, rel)));
+  }
+
   private static runPythonScript(scriptRelativePath: string, inputPayload: any): Promise<any> {
     const cwd = process.cwd();
     const scriptPath = path.join(cwd, scriptRelativePath);
@@ -12,8 +28,7 @@ export class NlpBridge {
     }
 
     return new Promise((resolve, reject) => {
-      // Try python3 first, fallback to python
-      const pythonExec = process.platform === 'win32' ? 'python' : 'python3';
+      const pythonExec = this.getPythonExecutable();
       const child = spawn(pythonExec, [scriptPath], {
         windowsHide: true,
       });

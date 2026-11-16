@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: modelmind-backend
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: CORS_ORIGIN
+        sync: false
+      - key: PYTHON_BIN
+        value: /opt/venv/bin/python3

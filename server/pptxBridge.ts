@@ -60,7 +60,7 @@ export class PptxBridge {
     }
 
     return new Promise((resolve, reject) => {
-      const pythonExec = process.platform === 'win32' ? 'python' : 'python3';
+      const pythonExec = process.env.PYTHON_BIN || (process.platform === 'win32' ? 'python' : 'python3');
       const child = spawn(pythonExec, [scriptPath, filePath, originalFilename], {
         windowsHide: true,
       });

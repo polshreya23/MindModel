@@ -3,6 +3,17 @@ import path from 'path';
 import fs from 'fs';
 
 export class PdfBridge {
+  private static cleanupFile(filePath?: string): void {
+    if (!filePath) return;
+    try {
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+    } catch {
+      // ignore cleanup errors
+    }
+  }
+
   public static async extractTextFromPdf(filePath: string): Promise<{
     success: boolean;
     text?: string;
@@ -13,11 +24,12 @@ export class PdfBridge {
     const scriptPath = path.join(cwd, 'python_nlp', 'pdf_extractor.py');
 
     if (!fs.existsSync(scriptPath)) {
+      this.cleanupFile(filePath);
       throw new Error(`PDF extractor script not found at '${scriptPath}'`);
     }
 
     return new Promise((resolve, reject) => {
-      const pythonExec = process.platform === 'win32' ? 'python' : 'python3';
+      const pythonExec = process.env.PYTHON_BIN || (process.platform === 'win32' ? 'python' : 'python3');
       const child = spawn(pythonExec, [scriptPath, filePath], {
         windowsHide: true,
       });
@@ -34,18 +46,13 @@ export class PdfBridge {
       });
 
       child.on('error', (err) => {
+        this.cleanupFile(filePath);
         reject(new Error(`Failed to launch PDF extractor: ${err.message}`));
       });
 
       child.on('close', (code) => {
         // Clean up temp file safely
-        try {
-          if (fs.existsSync(filePath)) {
-            fs.unlinkSync(filePath);
-          }
-        } catch {
-          // ignore cleanup errors
-        }
+        this.cleanupFile(filePath);
 
         if (code !== 0 && !stdout) {
           return reject(

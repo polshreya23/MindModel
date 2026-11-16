@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Code2, Copy, Check, FileCode, Clock, Terminal } from 'lucide-react';
+import { apiUrl } from '../lib/api.ts';
 
 interface FileSourceData {
   fileName: string;
@@ -29,7 +30,7 @@ export const DsaCodeViewer: React.FC = () => {
     const fetchSource = async () => {
       setIsLoading(true);
       try {
-        const res = await fetch(`/api/dsa/source/${selectedFile}`);
+        const res = await fetch(apiUrl(`/api/dsa/source/${selectedFile}`));
         if (res.ok) {
           const data = await res.json();
           setFileData(data);

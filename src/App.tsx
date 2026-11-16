@@ -36,6 +36,7 @@ import {
   clearAllHistory,
   isSupabaseReady,
 } from './lib/supabase.ts';
+import { apiUrl } from './lib/api.ts';
 import { Sparkles, AlertCircle, FilePlus2, Presentation } from 'lucide-react';
 
 export default function App() {
@@ -122,7 +123,7 @@ export default function App() {
     setErrorMessage(null);
     try {
       // 1. Python NLP Extraction & Summarization
-      const extractRes = await fetch('/api/extract', {
+      const extractRes = await fetch(apiUrl('/api/extract'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text, maxSentences: 3 }),
@@ -144,7 +145,7 @@ export default function App() {
       const rawNodes = extractData.nlp.nodes || [];
       const rawEdges = extractData.nlp.edges || [];
 
-      const buildRes = await fetch('/api/graph/build', {
+      const buildRes = await fetch(apiUrl('/api/graph/build'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ nodes: rawNodes, edges: rawEdges }),
@@ -231,7 +232,7 @@ export default function App() {
       const formData = new FormData();
       formData.append('pdf', file);
 
-      const res = await fetch('/api/upload-pdf', {
+      const res = await fetch(apiUrl('/api/upload-pdf'), {
         method: 'POST',
         body: formData,
       });
@@ -252,7 +253,7 @@ export default function App() {
       const rawNodes = data.nlp?.nodes || [];
       const rawEdges = data.nlp?.edges || [];
 
-      const buildRes = await fetch('/api/graph/build', {
+      const buildRes = await fetch(apiUrl('/api/graph/build'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ nodes: rawNodes, edges: rawEdges }),
@@ -328,7 +329,7 @@ export default function App() {
       const formData = new FormData();
       formData.append('presentation', file);
 
-      const res = await fetch('/api/upload-pptx', {
+      const res = await fetch(apiUrl('/api/upload-pptx'), {
         method: 'POST',
         body: formData,
       });
@@ -518,7 +519,7 @@ export default function App() {
   const handleRunBfs = async (startId: string) => {
     setIsRunningAlgorithm(true);
     try {
-      const res = await fetch('/api/graph/action', {
+      const res = await fetch(apiUrl('/api/graph/action'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -547,7 +548,7 @@ export default function App() {
   const handleRunDfs = async (startId: string) => {
     setIsRunningAlgorithm(true);
     try {
-      const res = await fetch('/api/graph/action', {
+      const res = await fetch(apiUrl('/api/graph/action'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -576,7 +577,7 @@ export default function App() {
   const handleRunDijkstra = async (startId: string, targetId: string) => {
     setIsRunningAlgorithm(true);
     try {
-      const res = await fetch('/api/graph/action', {
+      const res = await fetch(apiUrl('/api/graph/action'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -606,7 +607,7 @@ export default function App() {
   const handleSearchTrie = useCallback(
     async (prefix: string): Promise<AutoCompleteMatch[]> => {
       try {
-        const res = await fetch('/api/graph/action', {
+        const res = await fetch(apiUrl('/api/graph/action'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

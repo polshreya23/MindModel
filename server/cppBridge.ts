@@ -14,7 +14,11 @@ export interface CppBridgePayload {
 }
 
 export class CppBridge {
-  private static getBinaryPath(): string {
+  public static getBinaryPath(): string {
+    if (process.env.CPP_ENGINE_PATH && fs.existsSync(process.env.CPP_ENGINE_PATH)) {
+      return process.env.CPP_ENGINE_PATH;
+    }
+
     const isWindows = process.platform === 'win32';
     const cwd = process.cwd();
 
@@ -39,6 +43,10 @@ export class CppBridge {
 
     // Default fallback
     return candidates[0];
+  }
+
+  public static isReady(): boolean {
+    return fs.existsSync(this.getBinaryPath());
   }
 
   public static async execute(payload: CppBridgePayload): Promise<any> {

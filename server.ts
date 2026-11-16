@@ -1,8 +1,8 @@
+import 'dotenv/config';
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import multer from 'multer';
-import { createServer as createViteServer } from 'vite';
 import { CppBridge } from './server/cppBridge.ts';
 import { NlpBridge } from './server/nlpBridge.ts';
 import { PdfBridge } from './server/pdfBridge.ts';
@@ -11,10 +11,30 @@ import { PptxBridge } from './server/pptxBridge.ts';
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
-// Setup upload directory for temporary PDF parsing
+// Setup upload directory for temporary PDF and PowerPoint parsing
 const uploadsDir = path.join(process.cwd(), 'uploads');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+// Sweep any orphaned temporary files older than 1 hour on startup
+try {
+  const oneHourMs = 60 * 60 * 1000;
+  const now = Date.now();
+  for (const entry of fs.readdirSync(uploadsDir)) {
+    if (entry === '.gitkeep') continue;
+    const fullPath = path.join(uploadsDir, entry);
+    try {
+      const stat = fs.statSync(fullPath);
+      if (stat.isFile() && now - stat.mtimeMs > oneHourMs) {
+        fs.unlinkSync(fullPath);
+      }
+    } catch {
+      // ignore per-file cleanup errors
+    }
+  }
+} catch {
+  // ignore startup sweep errors
 }
 
 const upload = multer({
@@ -22,18 +42,79 @@ const upload = multer({
   limits: { fileSize: 25 * 1024 * 1024 }, // 25MB limit
 });
 
+// Production CORS Configuration (supports Vercel frontend -> Render backend)
+const rawCorsOrigins = (
+  process.env.CORS_ORIGIN ||
+  process.env.FRONTEND_URL ||
+  '*'
+).trim();
+
+const allowedOriginPatterns = rawCorsOrigins
+  .split(',')
+  .map((o) => o.trim().replace(/\/+$/, ''))
+  .filter(Boolean);
+
+function isOriginAllowed(origin: string | undefined): boolean {
+  if (!origin) return true;
+  if (allowedOriginPatterns.includes('*')) return true;
+  const normalizedOrigin = origin.replace(/\/+$/, '');
+  return allowedOriginPatterns.some((pattern) => {
+    if (pattern === normalizedOrigin) return true;
+    if (pattern.includes('*')) {
+      const escaped = pattern
+        .replace(/[.+?^${}()|[\]\\]/g, '\\$&')
+        .replace(/\*/g, '.*');
+      return new RegExp(`^${escaped}$`, 'i').test(normalizedOrigin);
+    }
+    return false;
+  });
+}
+
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (allowedOriginPatterns.includes('*')) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  } else if (origin && isOriginAllowed(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    'Content-Type, Accept, Authorization, X-Requested-With'
+  );
+  res.setHeader('Access-Control-Max-Age', '86400');
+
+  if (req.method === 'OPTIONS') {
+    if (origin && !isOriginAllowed(origin)) {
+      return res.status(403).json({ success: false, error: 'CORS origin not allowed.' });
+    }
+    return res.sendStatus(204);
+  }
+  next();
+});
+
 app.use(express.json({ limit: '20mb' }));
 app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 
-// Health Check
-app.get('/api/health', (_req, res) => {
-  res.json({
-    status: 'ok',
+// Health Check (used by Render & monitoring)
+const healthHandler = (_req: express.Request, res: express.Response) => {
+  const cppEngineReady = CppBridge.isReady();
+  const pythonScriptsReady = NlpBridge.verifyScripts();
+  const healthy = cppEngineReady && pythonScriptsReady;
+
+  res.status(healthy ? 200 : 503).json({
+    status: healthy ? 'ok' : 'degraded',
     app: 'ModelMind',
     platform: process.platform,
+    cppEngineReady,
+    pythonScriptsReady,
     timestamp: new Date().toISOString(),
   });
-});
+};
+
+app.get('/api/health', healthHandler);
+app.get('/health', healthHandler);
 
 // PDF Upload & Text Extraction
 app.post('/api/upload-pdf', upload.single('pdf'), async (req, res) => {
@@ -68,10 +149,11 @@ app.post('/api/upload-pdf', upload.single('pdf'), async (req, res) => {
       summary: summaryResult,
     });
   } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  } finally {
     if (req.file?.path) {
       PptxBridge.cleanupFile(req.file.path);
     }
-    res.status(500).json({ success: false, error: error.message });
   }
 });
 
@@ -178,10 +260,11 @@ app.post('/api/upload-pptx', upload.any(), async (req, res) => {
       slideReferences,
     });
   } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  } finally {
     if (uploadedFile?.path) {
       PptxBridge.cleanupFile(uploadedFile.path);
     }
-    res.status(500).json({ success: false, error: error.message });
   }
 });
 
@@ -296,11 +379,12 @@ app.get('/api/dsa/source/:file', (req, res) => {
   });
 });
 
-// Setup Vite development server or static file serving
+// Setup Vite development server (dev) or static/API production serving
 async function startServer() {
   const isProduction = process.env.NODE_ENV === 'production';
 
   if (!isProduction) {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
@@ -308,14 +392,29 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (_req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
+    const indexHtmlPath = path.join(distPath, 'index.html');
+
+    if (fs.existsSync(indexHtmlPath)) {
+      app.use(express.static(distPath));
+      app.get('*', (_req, res) => {
+        res.sendFile(indexHtmlPath);
+      });
+    } else {
+      app.get('/', (_req, res) => {
+        res.json({
+          status: 'ok',
+          service: 'ModelMind Backend API',
+          health: '/api/health',
+        });
+      });
+      app.use((_req, res) => {
+        res.status(404).json({ success: false, error: 'API endpoint not found.' });
+      });
+    }
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[ModelMind] Server running on http://0.0.0.0:${PORT}`);
+    console.log(`[ModelMind] Server listening on http://0.0.0.0:${PORT} (${isProduction ? 'production' : 'development'})`);
   });
 }
 
